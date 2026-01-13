@@ -1,0 +1,2 @@
+D:\Users\ShawnMI\OneDrive - Skyline Communications NV\Documents\WindowsPowerShell\Skyline\SLC_DownloadManager\bin\Release\net8.0\win-x64\publish\SLC_DownloadManager.pdb
+D:\Users\ShawnMI\OneDrive - Skyline Communications NV\Documents\WindowsPowerShell\Skyline\SLC_DownloadManager\bin\Release\net8.0\win-x64\publish\SLC_DownloadManager.exe
