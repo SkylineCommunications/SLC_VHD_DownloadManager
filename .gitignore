@@ -1,4 +1,10 @@
 # Ignore segmented download artifacts
 segment_*
-# Ignore final merged VHDX artifact
+
+# Ignore VHDX files (download artifacts - should not be committed)
+*.vhdx
 disk-selfhosteddma.vhdx
+
+# Ignore other temporary files
+*.tmp
+*.log
