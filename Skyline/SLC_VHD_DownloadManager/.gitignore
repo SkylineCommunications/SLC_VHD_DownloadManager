@@ -1,0 +1,4 @@
+# Ignore segmented download artifacts
+segment_*
+# Ignore final merged VHDX artifact
+disk-selfhosteddma.vhdx
