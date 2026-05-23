@@ -11,7 +11,7 @@ namespace SLC_DownloadManager;
 
 public sealed class HashResolutionService
 {
-    private static readonly Regex Sha256Regex = new("\b[a-fA-F0-9]{64}\b", RegexOptions.Compiled);
+    private static readonly Regex Sha256Regex = new(@"\b[a-fA-F0-9]{64}\b", RegexOptions.Compiled);
     private readonly HttpClient _httpClient;
 
     public HashResolutionService(HttpClient httpClient)
