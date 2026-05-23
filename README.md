@@ -11,6 +11,8 @@ Production-grade parallel VHD/file downloader with real-time heatmap progress vi
   - **Red (3+)**: Segment failed after exhausting max retries
   - **Gray (0)**: Segment in progress or queued
 - **File integrity verification** with SHA256 hash comparison
+- **Automatic hash lookup** (`--hash=auto` or `--hash-url=...`)
+- **Dynamic image discovery** with list/select flows from Azure Blob container listing
 - **Automatic retry logic** with 3 attempts per segment and 2-second backoff
 - **HTTP range request support** for efficient parallel downloads
 - **Progress tracking** with percentage and bytes downloaded
@@ -30,14 +32,16 @@ dotnet build
 
 #### Usage
 ```bash
-dotnet run -- [URL] [THREADS] [OUTPUT_PATH] [--chaos] [--retries=N] [--hash=HASH]
+dotnet run -- [URL] [THREADS] [OUTPUT_PATH] [--chaos] [--retries=N] [--hash=HASH|auto] [--hash-url=URL] [--list-images] [--select-image]
 ```
 
 **Examples:**
 ```bash
 dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 64 "test.bin"
 dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 8 "test.bin" --chaos
-dotnet run -- "https://stgpublicdownloads.blob.core.windows.net/cnt-selfhosteddma-vmimages/10.5/mgdsk-selfhosted-dma-Images-1005000900.vhdx" 256 "SLC_DMA.vhdx" --hash=a18b22343405cb97be56bef0832d09687f8408d5466dc8e251d435a0f65a70e3
+dotnet run -- --list-images --catalog-url="https://softwaredownloads.dataminer.services/dataminer-virtual-disk/"
+dotnet run -- --select-image 64 --hash=auto
+dotnet run -- "https://softwaredownloads.dataminer.services/dataminer-virtual-disk/10.6/mgdsk-selfhosted-dma-Images-Standard-1006.00.0200.vhdx" 256 "SLC_DMA.vhdx" --hash=auto
 ```
 
 ### For End Users
@@ -51,14 +55,16 @@ The executable will be in: `bin\Release\net8.0\win-x64\publish\SLC_DownloadManag
 
 #### Usage
 ```bash
-SLC_DownloadManager.exe [URL] [THREADS] [OUTPUT_PATH] [--chaos] [--retries=N] [--hash=HASH]
+SLC_DownloadManager.exe [URL] [THREADS] [OUTPUT_PATH] [--chaos] [--retries=N] [--hash=HASH|auto] [--hash-url=URL] [--list-images] [--select-image]
 ```
 
 **Examples:**
 ```bash
 SLC_DownloadManager.exe "https://github.com/szalony9szymek/large/releases/download/free/large" 64 "test.bin"
 SLC_DownloadManager.exe "https://github.com/szalony9szymek/large/releases/download/free/large" 8 "test.bin" --chaos
-SLC_DownloadManager.exe "https://stgpublicdownloads.blob.core.windows.net/cnt-selfhosteddma-vmimages/10.5/mgdsk-selfhosted-dma-Images-1005000900.vhdx" 256 "SLC_DMA.vhdx" --hash=a18b22343405cb97be56bef0832d09687f8408d5466dc8e251d435a0f65a70e3
+SLC_DownloadManager.exe --list-images --catalog-url="https://softwaredownloads.dataminer.services/dataminer-virtual-disk/"
+SLC_DownloadManager.exe --select-image 64 --hash=auto
+SLC_DownloadManager.exe "https://softwaredownloads.dataminer.services/dataminer-virtual-disk/10.5/mgdsk-selfhosted-dma-Images-Standard-1005.00.1400.vhdx" 256 "SLC_DMA.vhdx" --hash=auto
 ```
 
 ## Command-Line Arguments
@@ -70,7 +76,15 @@ SLC_DownloadManager.exe "https://stgpublicdownloads.blob.core.windows.net/cnt-se
 | OUTPUT_PATH | string | `downloaded_file.bin` | Local file path to save |
 | --chaos | flag | disabled | Enable chaos mode (injects failures for testing) |
 | --retries=N | int | `3` | Maximum retry attempts per segment (minimum: 1) |
-| --hash=HASH | string | none | SHA256 hash for file integrity verification after download |
+| --hash=HASH | string | none | Explicit SHA256 hash for file integrity verification |
+| --hash=auto | string | disabled | Derive hash URL candidates from the VHDX URL and resolve SHA256 automatically |
+| --hash-url=URL | string | none | Download hash text from a specific URL and parse SHA256 |
+| --list-images | flag | disabled | List available VHDX images from the catalog endpoint |
+| --select-image | flag | disabled | Prompt user to select a VHDX image from catalog before downloading |
+| --catalog-url=URL | string | `https://softwaredownloads.dataminer.services/dataminer-virtual-disk/` | Blob container endpoint used by list/select |
+| --catalog-prefix=PREFIX | string | `10.` | Prefix filter passed to blob listing API |
+| --threads=N | int | none | Alternative to positional `THREADS` argument |
+| --no-hash-verify | flag | disabled | Skip hash verification even when auto resolution is enabled |
 
 ## Project Structure
 
@@ -78,9 +92,36 @@ SLC_DownloadManager.exe "https://stgpublicdownloads.blob.core.windows.net/cnt-se
 src/
   Program.cs           - Entry point, command-line parsing
   DownloadManager.cs   - Core download logic, heatmap rendering, retry handling
+   ImageCatalogService.cs   - Catalog listing and VHDX discovery
+   HashResolutionService.cs - Hash source resolution and SHA256 parsing
+tests/
+   SLC_DownloadManager.Tests/
+      HashResolutionServiceTests.cs
+      ImageCatalogServiceTests.cs
 SLC_DownloadManager.csproj
 .vscode/tasks.json    - VS Code build/run tasks
 ```
+
+## Dynamic Discovery and Hash Lookup
+
+### Image Discovery
+
+- `--list-images` calls Azure Blob listing (`restype=container&comp=list`) and renders all `.vhdx` blobs.
+- `--select-image` opens an interactive picker using Spectre.Console and uses the selected URL for the download.
+- `--catalog-prefix=...` can narrow results (for example `10.5/`).
+
+### Hash Lookup
+
+- `--hash=<64-hex>` uses the exact user-provided hash.
+- `--hash-url=...` fetches a hash file and extracts the first 64-hex SHA256 token.
+- `--hash=auto` tries derived URLs in this order:
+   - `<vhdx>.sha256`
+   - `<vhdx>.sha256sum`
+   - `<vhdx>.hash`
+   - `<vhdx-without-extension>.sha256`
+   - `<vhdx-without-extension>.sha256sum`
+
+If no hash can be resolved, download proceeds without verification unless explicit hash/hash-url was supplied.
 
 ## Progress Display
 
@@ -179,6 +220,8 @@ Tip: Increase `--retries` if segments exceed max attempts (e.g., `--retries=6`) 
 | Issue | Solution |
 |-------|----------|
 | "Server did not return Content-Length" | URL doesn't support HTTP range requests |
+| "No VHDX images found" | Check `--catalog-url`, `--catalog-prefix`, or container listing permissions |
+| Hash auto-resolution failed | Provide `--hash-url=...` or explicit `--hash=...` |
 | "HTTP 403 Forbidden" | Server is restricting access or requires authentication |
 | "Segment files missing" | Disk space exhausted or permission issue |
 | Slow download | Reduce thread count or check network bandwidth |

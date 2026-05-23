@@ -19,7 +19,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Executable: $exePath" -ForegroundColor Yellow
     Write-Host "Size: $([math]::Round($size, 2)) MB" -ForegroundColor Yellow
     Write-Host "`nUsage:" -ForegroundColor Cyan
-    Write-Host "  SLC_DownloadManager.exe <url> <threads> <output> [--hash=...] [--retries=N]" -ForegroundColor White
+    Write-Host "  SLC_DownloadManager.exe <url> <threads> <output> [--hash=<sha256|auto>] [--hash-url=...] [--retries=N] [--list-images] [--select-image]" -ForegroundColor White
 } else {
     Write-Host "`nPublish failed!" -ForegroundColor Red
     exit 1
