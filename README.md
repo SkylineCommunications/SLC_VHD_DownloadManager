@@ -2,6 +2,8 @@
 
 Production-grade parallel VHD/file downloader with real-time heatmap progress visualization, automatic retry logic, and configurable concurrency.
 
+Manual URL-driven usage is now considered legacy and is deprecated in favor of dynamic image selection.
+
 ## Features
 
 - **Parallel segment downloads** with configurable thread count (1-256+)
@@ -32,38 +34,47 @@ dotnet build
 
 #### Usage
 ```bash
-dotnet run -- [URL] [THREADS] [OUTPUT_PATH] [--chaos] [--retries=N] [--hash=HASH|auto] [--hash-url=URL] [--list-images] [--select-image]
+dotnet run -- [--threads=N|auto] [--chaos] [--retries=N] [--hash=auto|HASH] [--hash-url=URL] [--list-images] [--select-image]
 ```
 
 **Examples:**
 ```bash
-dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 64 "test.bin"
-dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 8 "test.bin" --chaos
+dotnet run
+dotnet run -- --threads=128
 dotnet run -- --list-images --catalog-url="https://softwaredownloads.dataminer.services/dataminer-virtual-disk/"
-dotnet run -- --select-image 64 --hash=auto
-dotnet run -- "https://softwaredownloads.dataminer.services/dataminer-virtual-disk/10.6/mgdsk-selfhosted-dma-Images-Standard-1006.00.0200.vhdx" 256 "SLC_DMA.vhdx" --hash=auto
+dotnet run -- --select-image --threads=64 --hash=auto
 ```
 
 ### For End Users
 
 #### Publish Self-Contained Executable (Windows)
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+./publish.ps1
 ```
 
-The executable will be in: `bin\Release\net8.0\win-x64\publish\SLC_DownloadManager.exe`
+The script publishes `SLC_DownloadManager.csproj`, prints the executable location, then asks whether to launch it now (`y/n`).
+
+The executable will be in: `bin\Release\net8.0\win-x64\publish\SLC_DownloadManager.exe`.
 
 #### Usage
 ```bash
-SLC_DownloadManager.exe [URL] [THREADS] [OUTPUT_PATH] [--chaos] [--retries=N] [--hash=HASH|auto] [--hash-url=URL] [--list-images] [--select-image]
+SLC_DownloadManager.exe [--threads=N|auto] [--chaos] [--retries=N] [--hash=auto|HASH] [--hash-url=URL] [--list-images] [--select-image]
 ```
 
 **Examples:**
 ```bash
-SLC_DownloadManager.exe "https://github.com/szalony9szymek/large/releases/download/free/large" 64 "test.bin"
-SLC_DownloadManager.exe "https://github.com/szalony9szymek/large/releases/download/free/large" 8 "test.bin" --chaos
+SLC_DownloadManager.exe
+SLC_DownloadManager.exe --threads=128
 SLC_DownloadManager.exe --list-images --catalog-url="https://softwaredownloads.dataminer.services/dataminer-virtual-disk/"
-SLC_DownloadManager.exe --select-image 64 --hash=auto
+SLC_DownloadManager.exe --select-image --threads=64 --hash=auto
+```
+
+### Legacy Mode (Deprecated)
+
+Manual URL input is still supported for backward compatibility, but it is deprecated and may be removed in a future major release.
+
+```bash
+dotnet run -- "https://softwaredownloads.dataminer.services/dataminer-virtual-disk/10.5/mgdsk-selfhosted-dma-Images-Standard-1005.00.1400.vhdx" 256 "SLC_DMA.vhdx" --hash=auto
 SLC_DownloadManager.exe "https://softwaredownloads.dataminer.services/dataminer-virtual-disk/10.5/mgdsk-selfhosted-dma-Images-Standard-1005.00.1400.vhdx" 256 "SLC_DMA.vhdx" --hash=auto
 ```
 
@@ -71,9 +82,9 @@ SLC_DownloadManager.exe "https://softwaredownloads.dataminer.services/dataminer-
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| URL | string | required | Download URL (must support HTTP range requests) |
-| THREADS | int | `8` | Number of parallel segments (recommended: 8-64) |
-| OUTPUT_PATH | string | `downloaded_file.bin` | Local file path to save |
+| URL | string | legacy | Deprecated: direct download URL (prefer `--select-image` or zero-argument mode) |
+| THREADS | int | `8` | Legacy positional thread count (prefer `--threads=N` or `--threads=auto`) |
+| OUTPUT_PATH | string | selected VHDX filename | Legacy positional output path (defaults to selected VHDX name) |
 | --chaos | flag | disabled | Enable chaos mode (injects failures for testing) |
 | --retries=N | int | `3` | Maximum retry attempts per segment (minimum: 1) |
 | --hash=HASH | string | none | Explicit SHA256 hash for file integrity verification |
@@ -84,6 +95,7 @@ SLC_DownloadManager.exe "https://softwaredownloads.dataminer.services/dataminer-
 | --catalog-url=URL | string | `https://softwaredownloads.dataminer.services/dataminer-virtual-disk/` | Blob container endpoint used by list/select |
 | --catalog-prefix=PREFIX | string | `10.` | Prefix filter passed to blob listing API |
 | --threads=N | int | none | Alternative to positional `THREADS` argument |
+| --threads=auto | string | disabled | Automatically pick a thread count based on machine logical processors |
 | --no-hash-verify | flag | disabled | Skip hash verification even when auto resolution is enabled |
 
 ## Project Structure
@@ -104,10 +116,23 @@ SLC_DownloadManager.csproj
 
 ## Dynamic Discovery and Hash Lookup
 
+Running the app with no arguments enables smart defaults automatically:
+
+- Select image interactively (`--select-image`)
+- Use `256` threads by default
+- Resolve hash automatically (`--hash=auto`)
+- Save output using the selected VHDX filename
+
+If URL is omitted, these defaults also apply when you pass partial options such as `--threads=128`.
+
+Use `--threads=auto` when you prefer hardware-based automatic thread selection.
+
 ### Image Discovery
 
 - `--list-images` calls Azure Blob listing (`restype=container&comp=list`) and renders all `.vhdx` blobs.
 - `--select-image` opens an interactive picker using Spectre.Console and uses the selected URL for the download.
+- Selection labels are shortened to the version token after `-Standard-` when available (for example `1005.00.1400`).
+- `--list-images` includes a `Version` column using the same shortened format, alongside the full image name.
 - `--catalog-prefix=...` can narrow results (for example `10.5/`).
 
 ### Hash Lookup

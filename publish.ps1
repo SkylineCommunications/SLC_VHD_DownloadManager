@@ -8,8 +8,8 @@ if (Test-Path ".\bin\Release") {
     Remove-Item ".\bin\Release" -Recurse -Force
 }
 
-# Publish for Windows x64 (self-contained, single file)
-dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+# Publish only the app project for Windows x64 (self-contained, single file)
+dotnet publish ".\SLC_DownloadManager.csproj" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 
 if ($LASTEXITCODE -eq 0) {
     $exePath = ".\bin\Release\net8.0\win-x64\publish\SLC_DownloadManager.exe"
@@ -18,8 +18,22 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "`nPublish successful!" -ForegroundColor Green
     Write-Host "Executable: $exePath" -ForegroundColor Yellow
     Write-Host "Size: $([math]::Round($size, 2)) MB" -ForegroundColor Yellow
-    Write-Host "`nUsage:" -ForegroundColor Cyan
-    Write-Host "  SLC_DownloadManager.exe <url> <threads> <output> [--hash=<sha256|auto>] [--hash-url=...] [--retries=N] [--list-images] [--select-image]" -ForegroundColor White
+
+    while ($true) {
+        $runChoice = (Read-Host "`nRun the published executable now? (y/n)").Trim().ToLowerInvariant()
+        if ($runChoice -eq "y") {
+            Write-Host "Launching executable..." -ForegroundColor Cyan
+            & $exePath
+            break
+        }
+
+        if ($runChoice -eq "n") {
+            Write-Host "Skipping launch." -ForegroundColor DarkGray
+            break
+        }
+
+        Write-Host "Please enter 'y' or 'n'." -ForegroundColor Yellow
+    }
 } else {
     Write-Host "`nPublish failed!" -ForegroundColor Red
     exit 1

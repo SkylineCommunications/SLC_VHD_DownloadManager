@@ -5,6 +5,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <Version>1.1.2</Version>
+    <InformationalVersion>1.1.2</InformationalVersion>
+    <FileVersion>1.1.2.0</FileVersion>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>

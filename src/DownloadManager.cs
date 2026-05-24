@@ -396,12 +396,15 @@ public class DownloadManager
         try
         {
             string tempFile = outputPath + ".tmp";
+            long totalBytes = segments.Sum(s => new FileInfo(s.LocalPath).Length);
+            long bytesWritten = 0;
+            int lastReportedPercent = -1;
+            const int copyBufferSize = 4 * 1024 * 1024; // 4 MB
+            byte[] copyBuffer = new byte[copyBufferSize];
+
             using (var outputStream = File.Create(tempFile))
             {
-                int completed = 0;
-
-                // Single-line merge progress to avoid scrolling
-                AnsiConsole.Markup("[yellow]Merging: 0%[/]");
+                AnsiConsole.Markup($"[yellow]Merging:   0% |   0.00 GB / {totalBytes / 1024.0 / 1024.0 / 1024.0:F2} GB[/]");
 
                 foreach (var segment in segments)
                 {
@@ -414,16 +417,25 @@ public class DownloadManager
 
                     using (var inputStream = File.OpenRead(segment.LocalPath))
                     {
-                        await inputStream.CopyToAsync(outputStream, 1024 * 1024, ct);
+                        int read;
+                        while ((read = await inputStream.ReadAsync(copyBuffer, 0, copyBufferSize, ct)) > 0)
+                        {
+                            await outputStream.WriteAsync(copyBuffer, 0, read, ct);
+                            bytesWritten += read;
+                            int percent = totalBytes > 0 ? (int)(bytesWritten * 100L / totalBytes) : 0;
+                            if (percent != lastReportedPercent)
+                            {
+                                lastReportedPercent = percent;
+                                double gbWritten = bytesWritten / 1024.0 / 1024.0 / 1024.0;
+                                double gbTotal = totalBytes / 1024.0 / 1024.0 / 1024.0;
+                                AnsiConsole.Markup($"\r[yellow]Merging: {percent,3}% | {gbWritten:F2} GB / {gbTotal:F2} GB[/]   ");
+                            }
+                        }
                     }
-
-                    completed++;
-                    int percent = (int)(completed * 100.0 / segments.Count);
-                    AnsiConsole.Markup($"\r[yellow]Merging: {percent,3}%[/]   ");
                 }
-                
+
                 AnsiConsole.WriteLine();
-                outputStream.Flush();
+                await outputStream.FlushAsync(ct);
             }
 
             // Ensure output stream is closed before moving file
@@ -456,8 +468,32 @@ public class DownloadManager
     {
         using var sha256 = SHA256.Create();
         using var fileStream = File.OpenRead(filePath);
-        byte[] hashBytes = await sha256.ComputeHashAsync(fileStream, ct);
-        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+        long totalBytes = fileStream.Length;
+        long bytesRead = 0;
+        int lastReportedPercent = -1;
+        const int hashBufferSize = 4 * 1024 * 1024; // 4 MB
+        byte[] buffer = new byte[hashBufferSize];
+
+        AnsiConsole.Markup($"[yellow]Hashing:   0% |   0.00 GB / {totalBytes / 1024.0 / 1024.0 / 1024.0:F2} GB[/]");
+
+        int read;
+        while ((read = await fileStream.ReadAsync(buffer, 0, hashBufferSize, ct)) > 0)
+        {
+            sha256.TransformBlock(buffer, 0, read, null, 0);
+            bytesRead += read;
+            int percent = totalBytes > 0 ? (int)(bytesRead * 100L / totalBytes) : 0;
+            if (percent != lastReportedPercent)
+            {
+                lastReportedPercent = percent;
+                double gbRead = bytesRead / 1024.0 / 1024.0 / 1024.0;
+                double gbTotal = totalBytes / 1024.0 / 1024.0 / 1024.0;
+                AnsiConsole.Markup($"\r[yellow]Hashing: {percent,3}% | {gbRead:F2} GB / {gbTotal:F2} GB[/]   ");
+            }
+        }
+
+        sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+        AnsiConsole.WriteLine();
+        return BitConverter.ToString(sha256.Hash!).Replace("-", "").ToLowerInvariant();
     }
 
     public void Dispose()

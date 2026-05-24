@@ -80,7 +80,9 @@ public sealed class ImageCatalogService
 
     private static string BuildListRequestUri(string containerBaseUrl, string? prefix, string marker)
     {
-        string trimmedBase = containerBaseUrl.TrimEnd('/');
+        string normalizedBase = containerBaseUrl.EndsWith("/", StringComparison.Ordinal)
+            ? containerBaseUrl
+            : containerBaseUrl + "/";
         string separator = containerBaseUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
 
         var parts = new List<string>
@@ -99,7 +101,7 @@ public sealed class ImageCatalogService
             parts.Add($"marker={Uri.EscapeDataString(marker)}");
         }
 
-        return $"{trimmedBase}{separator}{string.Join("&", parts)}";
+        return $"{normalizedBase}{separator}{string.Join("&", parts)}";
     }
 }
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Spectre.Console;
@@ -11,8 +12,9 @@ namespace SLC_DownloadManager;
 
 class Program
 {
-    private const string DefaultUrl = "http://ipv4.download.thinkbroadband.com/100MB.zip";
     private const string DefaultCatalogUrl = "https://softwaredownloads.dataminer.services/dataminer-virtual-disk/";
+    private const int DefaultInteractiveThreads = 256;
+    private static readonly Regex StandardVersionRegex = new(@"-Standard-(?<version>[0-9]+(?:\.[0-9]+)+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     static async Task Main(string[] args)
     {
@@ -20,6 +22,12 @@ class Program
         AnsiConsole.WriteLine();
 
         CliOptions options = ParseArgs(args);
+
+        if (options.AutoThreads)
+        {
+            options.Threads = RecommendThreadCount();
+            AnsiConsole.MarkupLine($"[dim]Auto thread selection: using {options.Threads} threads (logical processors: {Environment.ProcessorCount})[/]");
+        }
 
         using var cts = new CancellationTokenSource();
         using var metadataClient = new HttpClient();
@@ -57,7 +65,9 @@ class Program
                 }
             }
 
-            string url = string.IsNullOrWhiteSpace(options.Url) ? DefaultUrl : options.Url;
+            string url = string.IsNullOrWhiteSpace(options.Url)
+                ? throw new InvalidOperationException("A URL must be provided or selected.")
+                : options.Url;
             string outputPath = string.IsNullOrWhiteSpace(options.OutputPath)
                 ? BuildDefaultOutputPath(url)
                 : options.OutputPath;
@@ -78,7 +88,7 @@ class Program
             }
 
             AnsiConsole.MarkupLine($"[dim]URL: {url}[/]");
-            AnsiConsole.MarkupLine($"[dim]Threads: {options.Threads}[/]");
+            AnsiConsole.MarkupLine($"[dim]Threads: {options.Threads}{(options.AutoThreads ? " (auto)" : string.Empty)}[/]");
             AnsiConsole.MarkupLine($"[dim]Output: {outputPath}[/]");
             AnsiConsole.MarkupLine($"[dim]Max Retries: {options.MaxRetries}[/]");
             if (options.ChaosMode) AnsiConsole.MarkupLine("[yellow]Chaos Mode: ENABLED[/]");
@@ -140,6 +150,13 @@ class Program
             else if (arg.StartsWith("--threads=", StringComparison.OrdinalIgnoreCase) && int.TryParse(arg.Substring(10), out int threads))
             {
                 options.Threads = threads;
+                options.AutoThreads = false;
+                options.ThreadsSpecified = true;
+            }
+            else if (arg.Equals("--threads=auto", StringComparison.OrdinalIgnoreCase))
+            {
+                options.AutoThreads = true;
+                options.ThreadsSpecified = true;
             }
             else if (arg.StartsWith("--hash=", StringComparison.OrdinalIgnoreCase))
             {
@@ -173,15 +190,61 @@ class Program
 
         if (positional.Count > 0)
         {
-            options.Url = positional[0];
+            int firstThreadValue = 0;
+            bool firstIsThreadInSelectMode =
+                (options.SelectImage || options.ListImages) &&
+                int.TryParse(positional[0], out firstThreadValue);
+
+            if (firstIsThreadInSelectMode)
+            {
+                options.Threads = firstThreadValue;
+                options.AutoThreads = false;
+                options.ThreadsSpecified = true;
+            }
+            else
+            {
+                options.Url = positional[0];
+            }
         }
-        if (positional.Count > 1 && int.TryParse(positional[1], out int positionalThreads))
+
+        if (positional.Count > 1)
         {
-            options.Threads = positionalThreads;
+            if (string.IsNullOrWhiteSpace(options.Url))
+            {
+                // In select/list mode, second positional argument can be output path.
+                options.OutputPath = positional[1];
+            }
+            else if (int.TryParse(positional[1], out int positionalThreads))
+            {
+                options.Threads = positionalThreads;
+                options.AutoThreads = false;
+                options.ThreadsSpecified = true;
+            }
         }
+
         if (positional.Count > 2)
         {
             options.OutputPath = positional[2];
+        }
+
+        // If no input source is specified, default to interactive selection mode.
+        bool hasInputSource = !string.IsNullOrWhiteSpace(options.Url) || options.SelectImage || options.ListImages;
+        bool hasExplicitHashSource = !string.IsNullOrWhiteSpace(options.ExplicitHash) || !string.IsNullOrWhiteSpace(options.HashUrl);
+
+        if (!hasInputSource)
+        {
+            options.SelectImage = true;
+
+            if (!options.ThreadsSpecified)
+            {
+                options.Threads = DefaultInteractiveThreads;
+                options.AutoThreads = false;
+            }
+
+            if (!options.NoHashVerify && !hasExplicitHashSource)
+            {
+                options.AutoHash = true;
+            }
         }
 
         options.Threads = Math.Max(1, options.Threads);
@@ -189,18 +252,27 @@ class Program
         return options;
     }
 
+    private static int RecommendThreadCount()
+    {
+        int logicalProcessors = Environment.ProcessorCount;
+        int proposed = logicalProcessors * 2;
+        return Math.Clamp(proposed, 8, 64);
+    }
+
     private static void RenderImageTable(IReadOnlyList<CatalogImage> images)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("[cyan]Available VHDX Images[/]");
-        table.AddColumn("Name");
+        table.AddColumn("Version");
+        table.AddColumn("Image");
         table.AddColumn("Size (GB)");
         table.AddColumn("Last Modified (UTC)");
 
         foreach (var image in images)
         {
+            string version = BuildSelectionLabel(image.Name);
             string size = image.ContentLength.HasValue ? (image.ContentLength.Value / 1024d / 1024d / 1024d).ToString("F2") : "-";
             string modified = image.LastModified?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
-            table.AddRow(image.Name, size, modified);
+            table.AddRow(version, image.Name, size, modified);
         }
 
         AnsiConsole.Write(table);
@@ -208,10 +280,21 @@ class Program
 
     private static string PromptForImageSelection(IReadOnlyList<CatalogImage> images)
     {
-        var labelMap = images.ToDictionary(
-            i => $"{i.Name} ({(i.ContentLength.HasValue ? (i.ContentLength.Value / 1024d / 1024d / 1024d).ToString("F2") : "-")} GB)",
-            i => i.Url,
-            StringComparer.OrdinalIgnoreCase);
+        var labelMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var image in images)
+        {
+            string baseLabel = BuildSelectionLabel(image.Name);
+            string label = baseLabel;
+            int duplicateIndex = 2;
+            while (labelMap.ContainsKey(label))
+            {
+                label = $"{baseLabel} ({duplicateIndex})";
+                duplicateIndex++;
+            }
+
+            labelMap[label] = image.Url;
+        }
 
         string selected = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -220,6 +303,18 @@ class Program
                 .AddChoices(labelMap.Keys));
 
         return labelMap[selected];
+    }
+
+    private static string BuildSelectionLabel(string imageName)
+    {
+        var match = StandardVersionRegex.Match(imageName);
+        if (match.Success)
+        {
+            return match.Groups["version"].Value;
+        }
+
+        string fileName = Path.GetFileNameWithoutExtension(imageName);
+        return string.IsNullOrWhiteSpace(fileName) ? imageName : fileName;
     }
 
     private static string BuildDefaultOutputPath(string url)
@@ -246,6 +341,8 @@ class Program
         public bool ListImages { get; set; }
         public bool SelectImage { get; set; }
         public bool NoHashVerify { get; set; }
+        public bool AutoThreads { get; set; }
+        public bool ThreadsSpecified { get; set; }
         public bool AutoHash { get; set; }
         public string? ExplicitHash { get; set; }
         public string? HashUrl { get; set; }
