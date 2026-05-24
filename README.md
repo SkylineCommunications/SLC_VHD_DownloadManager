@@ -28,16 +28,19 @@ Manual URL-driven usage is now considered legacy and is deprecated in favor of d
 ### For Developers
 
 #### Build
+
 ```bash
 dotnet build
 ```
 
 #### Usage
+
 ```bash
 dotnet run -- [--threads=N|auto] [--chaos] [--retries=N] [--hash=auto|HASH] [--hash-url=URL] [--list-images] [--select-image]
 ```
 
 **Examples:**
+
 ```bash
 dotnet run
 dotnet run -- --threads=128
@@ -48,6 +51,7 @@ dotnet run -- --select-image --threads=64 --hash=auto
 ### For End Users
 
 #### Publish Self-Contained Executable (Windows)
+
 ```bash
 ./publish.ps1
 ```
@@ -56,12 +60,14 @@ The script publishes `SLC_DownloadManager.csproj`, prints the executable locatio
 
 The executable will be in: `bin\Release\net8.0\win-x64\publish\SLC_DownloadManager.exe`.
 
-#### Usage
+#### Usage (Published EXE)
+
 ```bash
 SLC_DownloadManager.exe [--threads=N|auto] [--chaos] [--retries=N] [--hash=auto|HASH] [--hash-url=URL] [--list-images] [--select-image]
 ```
 
 **Examples:**
+
 ```bash
 SLC_DownloadManager.exe
 SLC_DownloadManager.exe --threads=128
@@ -81,7 +87,7 @@ SLC_DownloadManager.exe "https://softwaredownloads.dataminer.services/dataminer-
 ## Command-Line Arguments
 
 | Argument | Type | Default | Description |
-|----------|------|---------|-------------|
+| -------- | ---- | ------- | ----------- |
 | URL | string | legacy | Deprecated: direct download URL (prefer `--select-image` or zero-argument mode) |
 | THREADS | int | `8` | Legacy positional thread count (prefer `--threads=N` or `--threads=auto`) |
 | OUTPUT_PATH | string | selected VHDX filename | Legacy positional output path (defaults to selected VHDX name) |
@@ -100,7 +106,7 @@ SLC_DownloadManager.exe "https://softwaredownloads.dataminer.services/dataminer-
 
 ## Project Structure
 
-```
+```text
 src/
   Program.cs           - Entry point, command-line parsing
   DownloadManager.cs   - Core download logic, heatmap rendering, retry handling
@@ -140,18 +146,19 @@ Use `--threads=auto` when you prefer hardware-based automatic thread selection.
 - `--hash=<64-hex>` uses the exact user-provided hash.
 - `--hash-url=...` fetches a hash file and extracts the first 64-hex SHA256 token.
 - `--hash=auto` tries derived URLs in this order:
-   - `<vhdx>.sha256`
-   - `<vhdx>.sha256sum`
-   - `<vhdx>.hash`
-   - `<vhdx-without-extension>.sha256`
-   - `<vhdx-without-extension>.sha256sum`
+      - `<vhdx>.sha256`
+      - `<vhdx>.sha256sum`
+      - `<vhdx>.hash`
+      - `<vhdx-without-extension>.sha256`
+      - `<vhdx-without-extension>.sha256sum`
 
 If no hash can be resolved, download proceeds without verification unless explicit hash/hash-url was supplied.
 
 ## Progress Display
 
 During download, the heatmap updates every 500ms to show per-segment state and overall throughput:
-```
+
+```text
 Segment Status:
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -160,8 +167,9 @@ Progress: 25% | 250.00 MB / 1000.00 MB
 
 Legend: **green** = success, **yellow** = retrying (number shows retry count), **red** = failed after max retries, **gray** = in progress/queued.
 
-After download completes, the final segment heatmap is displayed as a summary, followed by a single-line merge progress indicator that updates in-place (0% → 100%) without scrolling:
-```
+After download completes, the final segment heatmap is displayed as a summary, followed by a single-line merge progress indicator that updates in-place (0% -> 100%) without scrolling:
+
+```text
 Download Complete - Final Segment Status:
 0 0 0 0 0 0 0 0
 
@@ -175,17 +183,20 @@ Successfully created: test.bin
 ## Chaos Mode
 
 Chaos mode (`--chaos`) purposely injects failures to validate retry logic and resilience:
+
 - **Segment 0**: Simulated immediate failure on first attempt, forces retry path
 - **Segment 1**: Simulated timeout (5-second limit), exercises cancellation handling
 
 Use chaos mode to verify:
+
 - Heatmap color transitions (gray → yellow [1] → green or red)
 - Retry counter increments in yellow segments
 - Merge executes successfully after all retries complete
 - Single-line merge progress updates cleanly without scrolling
 
 Example output during chaos (retries in progress):
-```
+
+```text
 Segment Status:
 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -193,7 +204,8 @@ Progress: 12% | 120.00 MB / 1000.00 MB
 ```
 
 After segment retries complete (all segments green):
-```
+
+```text
 Download Complete - Final Segment Status:
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 
@@ -221,16 +233,19 @@ Tip: Increase `--retries` if segments exceed max attempts (e.g., `--retries=6`) 
 ### Test Scenarios
 
 1. **Successful download**:
+
    ```bash
    dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 8
    ```
 
 2. **Chaos mode** (test retry/fail):
+
    ```bash
    dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 8 "test.bin" --chaos
    ```
 
 3. **High concurrency** (128 threads):
+
    ```bash
    dotnet run -- "https://github.com/szalony9szymek/large/releases/download/free/large" 128
    ```
@@ -243,7 +258,7 @@ Tip: Increase `--retries` if segments exceed max attempts (e.g., `--retries=6`) 
 ## Troubleshooting
 
 | Issue | Solution |
-|-------|----------|
+| ----- | -------- |
 | "Server did not return Content-Length" | URL doesn't support HTTP range requests |
 | "No VHDX images found" | Check `--catalog-url`, `--catalog-prefix`, or container listing permissions |
 | Hash auto-resolution failed | Provide `--hash-url=...` or explicit `--hash=...` |
